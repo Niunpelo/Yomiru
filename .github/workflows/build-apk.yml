@@ -2,7 +2,11 @@ name: Build APK
 
 on:
   push:
+    branches: [main, master]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -15,8 +19,10 @@ jobs:
 
       - name: Descomprimir el proyecto
         run: |
-          unzip -q yomiru.zip -d proyecto
-          ls proyecto/yomiru
+          rm -rf proyecto
+          mkdir proyecto
+          unzip -q gonen.zip -d proyecto
+          ls -la proyecto/gonen
 
       - name: Instalar Java 17
         uses: actions/setup-java@v4
@@ -24,31 +30,45 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Instalar Flutter (última versión estable)
+      - name: Instalar Flutter 3.38 (versión fijada para que la compilación no cambie sola)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.38.x"
           cache: true
 
       - name: Generar el proyecto Android
-        working-directory: proyecto/yomiru
-        run: flutter create --platforms=android --org com.yomiru --project-name yomiru .
+        working-directory: proyecto/gonen
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.gonen --project-name gonen .
+          fi
 
-      - name: Adaptar el proyecto Android
-        working-directory: proyecto/yomiru
+      - name: Adaptar el proyecto Android para Gonen
+        working-directory: proyecto/gonen
         run: python3 tool/patch_android.py
 
       - name: Instalar dependencias
-        working-directory: proyecto/yomiru
+        working-directory: proyecto/gonen
         run: flutter pub get
 
+      - name: Análisis estático
+        working-directory: proyecto/gonen
+        run: flutter analyze
+        continue-on-error: true
+
+      - name: Pruebas
+        working-directory: proyecto/gonen
+        run: flutter test
+        continue-on-error: true
+
       - name: Compilar el APK
-        working-directory: proyecto/yomiru
+        working-directory: proyecto/gonen
         run: flutter build apk --release
 
-      - name: Subir el APK
+      - name: Subir el APK como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: yomiru-apk
-          path: proyecto/yomiru/build/app/outputs/flutter-apk/app-release.apk
+          name: gonen-apk
+          path: proyecto/gonen/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
