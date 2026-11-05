@@ -4,6 +4,11 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      premium_test:
+        description: "SOLO PRUEBAS: desbloquear Premium sin pagar (no publiques este APK)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -64,11 +69,13 @@ jobs:
 
       - name: Compilar el APK
         working-directory: proyecto/gonen
-        run: flutter build apk --release
+        env:
+          PREMIUM_TEST: ${{ inputs.premium_test || 'false' }}
+        run: flutter build apk --release --dart-define=GONEN_PREMIUM_TEST=$PREMIUM_TEST
 
       - name: Subir el APK como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: gonen-apk
+          name: ${{ inputs.premium_test && 'gonen-apk-PRUEBA-premium' || 'gonen-apk' }}
           path: proyecto/gonen/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
