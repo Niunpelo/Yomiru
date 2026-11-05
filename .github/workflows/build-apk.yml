@@ -17,17 +17,64 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PREMIUM_TEST: ${{ inputs.premium_test || 'false' }}
 
     steps:
       - name: Descargar el repositorio
         uses: actions/checkout@v4
 
-      - name: Descomprimir el proyecto
+      - name: Descomprimir el proyecto (usa el ZIP con la versión más alta)
+        id: proyecto
         run: |
+          shopt -s nullglob
+          zips=(*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "::error title=Falta el ZIP::No hay ningun archivo .zip en la raiz del repositorio. Sube gonen.zip."
+            exit 1
+          fi
+
+          # Lee la version de cada ZIP y se queda con la mas alta. Asi da igual
+          # que el movil haya renombrado el archivo nuevo (por ejemplo a "gonen (1).zip").
+          best=$(for z in "${zips[@]}"; do
+            v=$(unzip -p "$z" '*pubspec.yaml' 2>/dev/null | grep -m1 '^version:' | awk '{print $2}')
+            echo "ZIP encontrado: $z (version ${v:-desconocida})" >&2
+            echo "${v:-0.0.0+0} $z"
+          done | sort -V | tail -n 1)
+
+          version_full="${best%% *}"
+          zipfile="${best#* }"
+          version="${version_full%%+*}"
+
+          if [ "$version_full" = "0.0.0+0" ]; then
+            echo "::error title=ZIP no valido::Ningun .zip contiene un pubspec.yaml de Gonen."
+            exit 1
+          fi
+
           rm -rf proyecto
           mkdir proyecto
-          unzip -q gonen.zip -d proyecto
+          unzip -q "$zipfile" -d proyecto
+          if [ ! -f proyecto/gonen/pubspec.yaml ]; then
+            echo "::error title=ZIP inesperado::El ZIP debe contener la carpeta gonen/ con el proyecto dentro."
+            ls -R proyecto | head -n 40
+            exit 1
+          fi
           ls -la proyecto/gonen
+
+          if [ -f proyecto/gonen/lib/screens/premium_screen.dart ]; then
+            premium="si"
+          else
+            premium="NO"
+          fi
+          echo "::notice title=Version de Gonen::Compilando Gonen $version desde '$zipfile'. Premium incluido: $premium"
+
+          if [ "$PREMIUM_TEST" = "true" ]; then
+            artifact="gonen-apk-PRUEBA-premium-v$version"
+          else
+            artifact="gonen-apk-v$version"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - name: Instalar Java 17
         uses: actions/setup-java@v4
@@ -69,13 +116,11 @@ jobs:
 
       - name: Compilar el APK
         working-directory: proyecto/gonen
-        env:
-          PREMIUM_TEST: ${{ inputs.premium_test || 'false' }}
         run: flutter build apk --release --dart-define=GONEN_PREMIUM_TEST=$PREMIUM_TEST
 
       - name: Subir el APK como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.premium_test && 'gonen-apk-PRUEBA-premium' || 'gonen-apk' }}
+          name: ${{ steps.proyecto.outputs.artifact }}
           path: proyecto/gonen/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
